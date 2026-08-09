@@ -54,6 +54,18 @@ public interface IAgent
         Action<AgentRequestOptions>? configure = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Streams a single user prompt as incremental events.</summary>
+    IAsyncEnumerable<AgentStreamEvent> StreamAsync(
+        string prompt,
+        Action<AgentRequestOptions>? configure = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Streams an explicit message list as incremental events.</summary>
+    IAsyncEnumerable<AgentStreamEvent> StreamAsync(
+        IReadOnlyList<AgentMessage> messages,
+        Action<AgentRequestOptions>? configure = null,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Creates a multi-turn session that retains history.</summary>
     IAgentSession CreateSession();
 }

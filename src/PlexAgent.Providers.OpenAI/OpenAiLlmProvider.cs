@@ -27,7 +27,7 @@ internal sealed class OpenAiLlmProvider : ILlmProvider
     {
         return Task.FromResult(new ProviderCapabilities(
             SupportsToolCalling: true,
-            SupportsStreaming: false,
+            SupportsStreaming: true,
             SupportsSystemMessages: true,
             SupportsJsonObject: true,
             SupportsJsonSchema: true,
@@ -51,6 +51,119 @@ internal sealed class OpenAiLlmProvider : ILlmProvider
 
         ChatCompletion completion = result.Value;
         return MapResult(completion);
+    }
+
+    public async IAsyncEnumerable<ProviderStreamUpdate> StreamAsync(
+        ProviderCompletionRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var client = CreateClient();
+        var chatClient = client.GetChatClient(request.Model);
+        var messages = MapMessages(request.Messages);
+        var options = MapOptions(request);
+
+        var contentBuilder = new StringBuilder();
+        var toolBuilders = new Dictionary<int, (string Id, string Name, StringBuilder Args)>();
+        AgentFinishReason finishReason = AgentFinishReason.Stop;
+        string model = request.Model;
+        AgentUsage? usage = null;
+
+        await foreach (var update in chatClient.CompleteChatStreamingAsync(messages, options, cancellationToken)
+            .ConfigureAwait(false))
+        {
+            if (!string.IsNullOrEmpty(update.Model))
+            {
+                model = update.Model;
+            }
+
+            if (update.Usage is not null)
+            {
+                usage = new AgentUsage
+                {
+                    InputTokens = update.Usage.InputTokenCount,
+                    OutputTokens = update.Usage.OutputTokenCount,
+                    TotalTokens = update.Usage.TotalTokenCount
+                };
+            }
+
+            if (update.FinishReason is ChatFinishReason chatFinish)
+            {
+                finishReason = MapFinishReason(chatFinish);
+            }
+
+            if (update.ContentUpdate is { Count: > 0 })
+            {
+                var delta = ExtractText(update.ContentUpdate);
+                if (!string.IsNullOrEmpty(delta))
+                {
+                    contentBuilder.Append(delta);
+                    yield return new ProviderStreamUpdate { TextDelta = delta };
+                }
+            }
+
+            if (update.ToolCallUpdates is { Count: > 0 })
+            {
+                foreach (var toolUpdate in update.ToolCallUpdates)
+                {
+                    if (!toolBuilders.TryGetValue(toolUpdate.Index, out var builder))
+                    {
+                        builder = (
+                            toolUpdate.ToolCallId ?? string.Empty,
+                            toolUpdate.FunctionName ?? string.Empty,
+                            new StringBuilder());
+                    }
+
+                    if (!string.IsNullOrEmpty(toolUpdate.ToolCallId))
+                    {
+                        builder.Id = toolUpdate.ToolCallId;
+                    }
+
+                    if (!string.IsNullOrEmpty(toolUpdate.FunctionName))
+                    {
+                        builder.Name = toolUpdate.FunctionName;
+                    }
+
+                    if (toolUpdate.FunctionArgumentsUpdate is not null)
+                    {
+                        builder.Args.Append(toolUpdate.FunctionArgumentsUpdate);
+                    }
+
+                    toolBuilders[toolUpdate.Index] = builder;
+                }
+            }
+        }
+
+        IReadOnlyList<ToolCall>? toolCalls = null;
+        if (toolBuilders.Count > 0)
+        {
+            toolCalls = toolBuilders
+                .OrderBy(static pair => pair.Key)
+                .Select(static pair => new ToolCall
+                {
+                    Id = pair.Value.Id,
+                    Name = pair.Value.Name,
+                    ArgumentsJson = pair.Value.Args.Length == 0 ? "{}" : pair.Value.Args.ToString()
+                })
+                .ToArray();
+            if (finishReason == AgentFinishReason.Stop)
+            {
+                finishReason = AgentFinishReason.ToolCalls;
+            }
+        }
+
+        yield return new ProviderStreamUpdate
+        {
+            Completed = new ProviderCompletionResult
+            {
+                Content = contentBuilder.ToString(),
+                ToolCalls = toolCalls,
+                Model = model,
+                FinishReason = finishReason,
+                Usage = usage
+            }
+        };
     }
 
     private OpenAIClient CreateClient()

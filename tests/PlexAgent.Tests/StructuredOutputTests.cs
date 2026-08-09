@@ -193,4 +193,17 @@ internal sealed class StructuredFakeLlmProvider : ILlmProvider
             Usage = new AgentUsage { InputTokens = 2, OutputTokens = 3, TotalTokens = 5 }
         });
     }
+
+    public async IAsyncEnumerable<ProviderStreamUpdate> StreamAsync(
+        ProviderCompletionRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var result = await CompleteAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!string.IsNullOrEmpty(result.Content))
+        {
+            yield return new ProviderStreamUpdate { TextDelta = result.Content };
+        }
+
+        yield return new ProviderStreamUpdate { Completed = result };
+    }
 }

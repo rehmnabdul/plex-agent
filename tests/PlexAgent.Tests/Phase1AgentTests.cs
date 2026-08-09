@@ -206,7 +206,7 @@ internal sealed class FakeLlmProvider : ILlmProvider
     {
         return Task.FromResult(new ProviderCapabilities(
             SupportsToolCalling: false,
-            SupportsStreaming: false,
+            SupportsStreaming: true,
             SupportsSystemMessages: true,
             SupportsJsonObject: true,
             SupportsJsonSchema: true,
@@ -229,5 +229,18 @@ internal sealed class FakeLlmProvider : ILlmProvider
             FinishReason = AgentFinishReason.Stop,
             Usage = new AgentUsage { InputTokens = 3, OutputTokens = 5, TotalTokens = 8 }
         });
+    }
+
+    public async IAsyncEnumerable<ProviderStreamUpdate> StreamAsync(
+        ProviderCompletionRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var result = await CompleteAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!string.IsNullOrEmpty(result.Content))
+        {
+            yield return new ProviderStreamUpdate { TextDelta = result.Content };
+        }
+
+        yield return new ProviderStreamUpdate { Completed = result };
     }
 }

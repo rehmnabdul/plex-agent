@@ -67,6 +67,32 @@ internal sealed class AgentSession : IAgentSession
         return response;
     }
 
+    public async IAsyncEnumerable<AgentStreamEvent> StreamAsync(
+        string prompt,
+        Action<AgentRequestOptions>? configure = null,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
+        EnsureSystemPrompt();
+        _history.Add(AgentMessage.User(prompt));
+
+        AgentResponse? completed = null;
+        await foreach (var streamEvent in _agent.StreamAsync(_history, configure, cancellationToken).ConfigureAwait(false))
+        {
+            if (streamEvent.Kind == AgentStreamEventKind.Completed && streamEvent.Response is not null)
+            {
+                completed = streamEvent.Response;
+            }
+
+            yield return streamEvent;
+        }
+
+        if (completed is not null)
+        {
+            AppendResponse(completed);
+        }
+    }
+
     public void Clear()
     {
         _history.Clear();

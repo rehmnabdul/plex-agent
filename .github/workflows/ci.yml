@@ -33,3 +33,29 @@ jobs:
           dotnet pack src/PlexAgent.Providers.OpenAI/PlexAgent.Providers.OpenAI.csproj --configuration Release --no-build -o artifacts
           dotnet pack src/PlexAgent.Providers.Anthropic/PlexAgent.Providers.Anthropic.csproj --configuration Release --no-build -o artifacts
           dotnet pack src/PlexAgent.Providers.Gemini/PlexAgent.Providers.Gemini.csproj --configuration Release --no-build -o artifacts
+
+  integration-openai:
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore tests/PlexAgent.IntegrationTests/PlexAgent.IntegrationTests.csproj
+
+      - name: Build integration tests
+        run: dotnet build tests/PlexAgent.IntegrationTests/PlexAgent.IntegrationTests.csproj --configuration Release --no-restore
+
+      - name: Run OpenAI live integration tests
+        env:
+          PLEXAGENT_OPENAI_API_KEY: ${{ secrets.PLEXAGENT_OPENAI_API_KEY }}
+        run: >
+          dotnet test tests/PlexAgent.IntegrationTests/PlexAgent.IntegrationTests.csproj
+          --configuration Release
+          --no-build
+          --filter "FullyQualifiedName~OpenAiLiveIntegrationTests"
