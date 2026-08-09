@@ -5,6 +5,7 @@ using PlexAgent.Abstractions;
 using PlexAgent.Agents;
 using PlexAgent.Configuration;
 using PlexAgent.Internal;
+using PlexAgent.Tools;
 
 namespace PlexAgent.DependencyInjection;
 
@@ -13,6 +14,12 @@ public interface IPlexAgentBuilder
 {
     /// <summary>Underlying service collection.</summary>
     IServiceCollection Services { get; }
+
+    /// <summary>Registers a tool instance for agents to reference by name.</summary>
+    IPlexAgentBuilder AddTool(IToolDefinition tool);
+
+    /// <summary>Registers a tool type for agents to reference by name.</summary>
+    IPlexAgentBuilder AddTool<TTool>() where TTool : class, IToolDefinition;
 }
 
 internal sealed class PlexAgentBuilder : IPlexAgentBuilder
@@ -23,6 +30,19 @@ internal sealed class PlexAgentBuilder : IPlexAgentBuilder
     }
 
     public IServiceCollection Services { get; }
+
+    public IPlexAgentBuilder AddTool(IToolDefinition tool)
+    {
+        ArgumentNullException.ThrowIfNull(tool);
+        Services.TryAddEnumerable(ServiceDescriptor.Singleton<IToolDefinition>(tool));
+        return this;
+    }
+
+    public IPlexAgentBuilder AddTool<TTool>() where TTool : class, IToolDefinition
+    {
+        Services.TryAddEnumerable(ServiceDescriptor.Singleton<IToolDefinition, TTool>());
+        return this;
+    }
 }
 
 /// <summary>ASP.NET Core / generic host DI registration for Plex Agent.</summary>
@@ -59,6 +79,8 @@ public static class PlexAgentServiceCollectionExtensions
         services.AddLogging();
         services.TryAddSingleton<LlmProviderRegistry>();
         services.TryAddSingleton<AgentDefinitionRegistry>();
+        services.TryAddSingleton<ToolRegistry>();
+        services.TryAddSingleton<IToolExecutor, ToolExecutor>();
         services.TryAddSingleton<AgentOrchestrator>();
         services.TryAddScoped<IAgentFactory, AgentFactory>();
     }

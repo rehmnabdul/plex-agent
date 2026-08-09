@@ -105,3 +105,31 @@ public sealed class ToolLoopMaxIterationsExceededException : PlexAgentException
 
     public int MaxIterations { get; }
 }
+
+public sealed class ToolNotFoundException : PlexAgentException
+{
+    public ToolNotFoundException(string toolName)
+        : base($"Tool '{toolName}' was not registered.")
+    {
+        ToolName = toolName;
+    }
+
+    public string ToolName { get; }
+}
+
+public sealed class ToolExecutionException : PlexAgentException
+{
+    public ToolExecutionException(string toolName, string message)
+        : base(message)
+    {
+        ToolName = toolName;
+    }
+
+    public ToolExecutionException(string toolName, string message, Exception innerException)
+        : base(message, innerException)
+    {
+        ToolName = toolName;
+    }
+
+    public string ToolName { get; }
+}

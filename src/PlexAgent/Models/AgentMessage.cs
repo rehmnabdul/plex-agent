@@ -19,4 +19,19 @@ public sealed class AgentMessage
     public static AgentMessage User(string content) => new() { Role = AgentRole.User, Content = content };
 
     public static AgentMessage Assistant(string content) => new() { Role = AgentRole.Assistant, Content = content };
+
+    public static AgentMessage Assistant(string content, IReadOnlyList<ToolCall> toolCalls) => new()
+    {
+        Role = AgentRole.Assistant,
+        Content = content,
+        ToolCalls = toolCalls
+    };
+
+    public static AgentMessage Tool(string toolCallId, string name, string content) => new()
+    {
+        Role = AgentRole.Tool,
+        ToolCallId = toolCallId,
+        Name = name,
+        Content = content
+    };
 }
