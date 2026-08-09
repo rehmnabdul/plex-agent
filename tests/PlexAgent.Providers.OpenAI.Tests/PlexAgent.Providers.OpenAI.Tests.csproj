@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\PlexAgent\PlexAgent.csproj" />
     <ProjectReference Include="..\..\src\PlexAgent.Providers.OpenAI\PlexAgent.Providers.OpenAI.csproj" />
   </ItemGroup>
 
