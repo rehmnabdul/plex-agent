@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PlexAgent\PlexAgent.csproj" />
+    <ProjectReference Include="..\..\src\PlexAgent.Providers.OpenAI\PlexAgent.Providers.OpenAI.csproj" />
+  </ItemGroup>
+
+</Project>

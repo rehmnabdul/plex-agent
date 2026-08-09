@@ -1,0 +1,6 @@
+@PlexAgent.Sample.WebApi_HostAddress = http://localhost:5195
+
+GET {{PlexAgent.Sample.WebApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
