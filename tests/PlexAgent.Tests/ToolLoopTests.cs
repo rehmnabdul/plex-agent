@@ -214,7 +214,7 @@ internal sealed class ScriptedLlmProvider : ILlmProvider
     {
         return Task.FromResult(new ProviderCapabilities(
             SupportsToolCalling: _supportsTools,
-            SupportsStreaming: false,
+            SupportsStreaming: true,
             SupportsSystemMessages: true,
             SupportsJsonObject: true,
             SupportsJsonSchema: true,
@@ -233,5 +233,18 @@ internal sealed class ScriptedLlmProvider : ILlmProvider
         }
 
         return Task.FromResult(_results.Dequeue());
+    }
+
+    public async IAsyncEnumerable<ProviderStreamUpdate> StreamAsync(
+        ProviderCompletionRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var result = await CompleteAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!string.IsNullOrEmpty(result.Content))
+        {
+            yield return new ProviderStreamUpdate { TextDelta = result.Content };
+        }
+
+        yield return new ProviderStreamUpdate { Completed = result };
     }
 }

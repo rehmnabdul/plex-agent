@@ -15,11 +15,19 @@ public interface ILlmProvider
     Task<ProviderCompletionResult> CompleteAsync(
         ProviderCompletionRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Streams a completion request. Implementations should yield text deltas and a final
+    /// <see cref="ProviderStreamUpdate"/> with <see cref="ProviderStreamUpdate.Completed"/> set.
+    /// </summary>
+    IAsyncEnumerable<ProviderStreamUpdate> StreamAsync(
+        ProviderCompletionRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Capability advertisement for a provider adapter.</summary>
 /// <param name="SupportsToolCalling">Whether tool/function calling is supported.</param>
-/// <param name="SupportsStreaming">Whether streaming is supported (false in v1 adapters).</param>
+/// <param name="SupportsStreaming">Whether streaming is supported.</param>
 /// <param name="SupportsSystemMessages">Whether system messages are supported.</param>
 /// <param name="SupportsJsonObject">Whether JSON object mode is supported.</param>
 /// <param name="SupportsJsonSchema">Whether strict JSON schema responses are supported.</param>

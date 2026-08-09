@@ -32,7 +32,7 @@ internal sealed class GeminiLlmProvider : ILlmProvider
     {
         return Task.FromResult(new ProviderCapabilities(
             SupportsToolCalling: true,
-            SupportsStreaming: false,
+            SupportsStreaming: true,
             SupportsSystemMessages: true,
             SupportsJsonObject: true,
             SupportsJsonSchema: true,
@@ -46,15 +46,10 @@ internal sealed class GeminiLlmProvider : ILlmProvider
         ArgumentNullException.ThrowIfNull(request);
 
         var options = _options.Value;
-        if (string.IsNullOrWhiteSpace(options.ApiKey))
-        {
-            throw new ProviderConfigurationException(
-                LlmProviderIds.Gemini,
-                "Gemini API key is missing. Set PlexAgent:Providers:Gemini:ApiKey or configure AddGemini options.");
-        }
+        EnsureApiKey(options);
 
         var client = _httpClientFactory.CreateClient(GeminiDefaults.HttpClientName);
-        using var httpRequest = CreateRequest(request, options);
+        using var httpRequest = CreateRequest(request, options, stream: false);
         using var response = await client.SendAsync(httpRequest, cancellationToken).ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
@@ -68,21 +63,143 @@ internal sealed class GeminiLlmProvider : ILlmProvider
         return MapResponse(body, request.Model);
     }
 
-    private static HttpRequestMessage CreateRequest(ProviderCompletionRequest request, GeminiOptions options)
+    public async IAsyncEnumerable<ProviderStreamUpdate> StreamAsync(
+        ProviderCompletionRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var options = _options.Value;
+        EnsureApiKey(options);
+
+        var client = _httpClientFactory.CreateClient(GeminiDefaults.HttpClientName);
+        using var httpRequest = CreateRequest(request, options, stream: true);
+        using var response = await client
+            .SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .ConfigureAwait(false);
+        var bodyStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            using var reader = new StreamReader(bodyStream);
+            var errorBody = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            throw new ProviderRequestException(
+                LlmProviderIds.Gemini,
+                $"Gemini stream failed with {(int)response.StatusCode}: {errorBody}");
+        }
+
+        var contentBuilder = new StringBuilder();
+        List<ToolCall>? toolCalls = null;
+        AgentFinishReason finishReason = AgentFinishReason.Stop;
+        AgentUsage? usage = null;
+
+        using var streamReader = new StreamReader(bodyStream);
+        while (!streamReader.EndOfStream)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var line = await streamReader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+            if (line is null)
+            {
+                break;
+            }
+
+            if (!line.StartsWith("data:", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var data = line["data:".Length..].Trim();
+            if (data.Length == 0 || data == "[DONE]")
+            {
+                continue;
+            }
+
+            using var document = JsonDocument.Parse(data);
+            var mapped = MapResponse(document.RootElement.GetRawText(), request.Model);
+
+            if (!string.IsNullOrEmpty(mapped.Content))
+            {
+                // Gemini stream chunks are cumulative per event in some modes; prefer delta by suffix.
+                var incoming = mapped.Content;
+                if (incoming.StartsWith(contentBuilder.ToString(), StringComparison.Ordinal))
+                {
+                    var delta = incoming[contentBuilder.Length..];
+                    if (!string.IsNullOrEmpty(delta))
+                    {
+                        contentBuilder.Append(delta);
+                        yield return new ProviderStreamUpdate { TextDelta = delta };
+                    }
+                }
+                else
+                {
+                    contentBuilder.Append(incoming);
+                    yield return new ProviderStreamUpdate { TextDelta = incoming };
+                }
+            }
+
+            if (mapped.ToolCalls is { Count: > 0 })
+            {
+                toolCalls = mapped.ToolCalls
+                    .Select((call, index) => new ToolCall
+                    {
+                        Id = string.IsNullOrWhiteSpace(call.Id) ? $"call_{index}" : call.Id,
+                        Name = call.Name,
+                        ArgumentsJson = call.ArgumentsJson
+                    })
+                    .ToList();
+            }
+
+            if (mapped.Usage is not null)
+            {
+                usage = mapped.Usage;
+            }
+
+            finishReason = mapped.FinishReason;
+        }
+
+        yield return new ProviderStreamUpdate
+        {
+            Completed = new ProviderCompletionResult
+            {
+                Content = contentBuilder.ToString(),
+                ToolCalls = toolCalls,
+                Model = request.Model,
+                FinishReason = toolCalls is { Count: > 0 } ? AgentFinishReason.ToolCalls : finishReason,
+                Usage = usage
+            }
+        };
+    }
+
+    private static void EnsureApiKey(GeminiOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.ApiKey))
+        {
+            throw new ProviderConfigurationException(
+                LlmProviderIds.Gemini,
+                "Gemini API key is missing. Set PlexAgent:Providers:Gemini:ApiKey or configure AddGemini options.");
+        }
+    }
+
+    private static HttpRequestMessage CreateRequest(ProviderCompletionRequest request, GeminiOptions options, bool stream)
     {
         var baseUrl = string.IsNullOrWhiteSpace(options.BaseUrl)
             ? GeminiDefaults.DefaultBaseUrl
             : options.BaseUrl.TrimEnd('/');
 
         var model = Uri.EscapeDataString(request.Model);
-        var url = $"{baseUrl}/v1beta/models/{model}:generateContent?key={Uri.EscapeDataString(options.ApiKey)}";
-        var payload = BuildPayload(request);
+        var method = stream ? "streamGenerateContent" : "generateContent";
+        var url = $"{baseUrl}/v1beta/models/{model}:{method}?key={Uri.EscapeDataString(options.ApiKey)}";
+        if (stream)
+        {
+            url += "&alt=sse";
+        }
 
+        var payload = BuildPayload(request);
         var httpRequest = new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = new StringContent(payload.ToJsonString(SerializerOptions), Encoding.UTF8, "application/json")
         };
-        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(stream ? "text/event-stream" : "application/json"));
         return httpRequest;
     }
 

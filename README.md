@@ -11,7 +11,7 @@ Multi-LLM agent library for ASP.NET Core and .NET generic hosts. Configure named
 | `PlexAgent.Providers.Anthropic` | Anthropic Messages API adapter |
 | `PlexAgent.Providers.Gemini` | Google Gemini adapter |
 
-Current version: **1.0.0**
+Current version: **1.1.0**
 
 ## Quick start
 
@@ -42,7 +42,9 @@ await session.AskAsync("What is my name?");
 
 - Unified `IAgent` / `IAgentFactory` API over OpenAI, Anthropic, and Gemini
 - Library-owned tool loop with max-iteration guard and argument validation
+- Streaming via `StreamAsync` (`IAsyncEnumerable<AgentStreamEvent>`) across providers
 - Structured JSON via `AskAsync<T>` (JSON Schema when supported, JSON object fallback)
+- Richer JSON Schema validation for tools and structured responses (types, enum, bounds, additionalProperties)
 - Multi-turn `IAgentSession` with `Clear` / `Reset`, turn tracking, and optional history limits
 - Per-call provider/model overrides (`WithProvider`, `WithModel`)
 - HttpClient resilience via `Microsoft.Extensions.Http.Resilience`

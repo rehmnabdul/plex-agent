@@ -82,6 +82,19 @@ public sealed class ToolCallingNotSupportedException : PlexAgentException
     }
 }
 
+/// <summary>Thrown when streaming is requested but unsupported by the provider/model.</summary>
+public sealed class StreamingNotSupportedException : PlexAgentException
+{
+    /// <summary>Creates a streaming-not-supported exception.</summary>
+    public StreamingNotSupportedException(string agentName, string providerId, string model)
+        : base($"Agent '{agentName}' requested streaming, but provider '{providerId}' model '{model}' does not support streaming.")
+    {
+        AgentName = agentName;
+        ProviderId = providerId;
+        Model = model;
+    }
+}
+
 /// <summary>Thrown when structured JSON output is requested but unsupported by the provider/model.</summary>
 public sealed class StructuredOutputNotSupportedException : PlexAgentException
 {

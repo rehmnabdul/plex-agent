@@ -32,6 +32,12 @@ public interface IAgentSession
         Action<AgentRequestOptions>? configure = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Streams a user prompt and updates history when the turn completes.</summary>
+    IAsyncEnumerable<AgentStreamEvent> StreamAsync(
+        string prompt,
+        Action<AgentRequestOptions>? configure = null,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Clears conversation history. The system prompt is re-injected on the next turn.</summary>
     void Clear();
 

@@ -32,7 +32,7 @@ internal sealed class AnthropicLlmProvider : ILlmProvider
     {
         return Task.FromResult(new ProviderCapabilities(
             SupportsToolCalling: true,
-            SupportsStreaming: false,
+            SupportsStreaming: true,
             SupportsSystemMessages: true,
             SupportsJsonObject: true,
             SupportsJsonSchema: false,
@@ -46,15 +46,10 @@ internal sealed class AnthropicLlmProvider : ILlmProvider
         ArgumentNullException.ThrowIfNull(request);
 
         var options = _options.Value;
-        if (string.IsNullOrWhiteSpace(options.ApiKey))
-        {
-            throw new ProviderConfigurationException(
-                LlmProviderIds.Anthropic,
-                "Anthropic API key is missing. Set PlexAgent:Providers:Anthropic:ApiKey or configure AddAnthropic options.");
-        }
+        EnsureApiKey(options);
 
         var client = _httpClientFactory.CreateClient(AnthropicDefaults.HttpClientName);
-        using var httpRequest = CreateRequest(request, options);
+        using var httpRequest = CreateRequest(request, options, stream: false);
         using var response = await client.SendAsync(httpRequest, cancellationToken).ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
@@ -68,20 +63,201 @@ internal sealed class AnthropicLlmProvider : ILlmProvider
         return MapResponse(body, request.Model);
     }
 
-    private static HttpRequestMessage CreateRequest(ProviderCompletionRequest request, AnthropicOptions options)
+    public async IAsyncEnumerable<ProviderStreamUpdate> StreamAsync(
+        ProviderCompletionRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var options = _options.Value;
+        EnsureApiKey(options);
+
+        var client = _httpClientFactory.CreateClient(AnthropicDefaults.HttpClientName);
+        using var httpRequest = CreateRequest(request, options, stream: true);
+        using var response = await client
+            .SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .ConfigureAwait(false);
+        var bodyStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            using var reader = new StreamReader(bodyStream);
+            var errorBody = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            throw new ProviderRequestException(
+                LlmProviderIds.Anthropic,
+                $"Anthropic stream failed with {(int)response.StatusCode}: {errorBody}");
+        }
+
+        var contentBuilder = new StringBuilder();
+        var toolBuilders = new Dictionary<int, (string Id, string Name, StringBuilder Args)>();
+        AgentFinishReason finishReason = AgentFinishReason.Stop;
+        string model = request.Model;
+        AgentUsage? usage = null;
+
+        using var streamReader = new StreamReader(bodyStream);
+        while (!streamReader.EndOfStream)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var line = await streamReader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+            if (line is null)
+            {
+                break;
+            }
+
+            if (!line.StartsWith("data:", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var data = line["data:".Length..].Trim();
+            if (data.Length == 0 || data == "[DONE]")
+            {
+                continue;
+            }
+
+            using var document = JsonDocument.Parse(data);
+            var root = document.RootElement;
+            var type = root.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : null;
+
+            if (type == "content_block_delta" &&
+                root.TryGetProperty("delta", out var delta) &&
+                delta.TryGetProperty("type", out var deltaType))
+            {
+                var deltaKind = deltaType.GetString();
+                if (deltaKind == "text_delta" && delta.TryGetProperty("text", out var text))
+                {
+                    var chunk = text.GetString();
+                    if (!string.IsNullOrEmpty(chunk))
+                    {
+                        contentBuilder.Append(chunk);
+                        yield return new ProviderStreamUpdate { TextDelta = chunk };
+                    }
+                }
+                else if (deltaKind == "input_json_delta" &&
+                         delta.TryGetProperty("partial_json", out var partial) &&
+                         root.TryGetProperty("index", out var indexProp))
+                {
+                    var index = indexProp.GetInt32();
+                    if (!toolBuilders.TryGetValue(index, out var builder))
+                    {
+                        builder = (string.Empty, string.Empty, new StringBuilder());
+                    }
+
+                    builder.Args.Append(partial.GetString());
+                    toolBuilders[index] = builder;
+                }
+            }
+            else if (type == "content_block_start" &&
+                     root.TryGetProperty("content_block", out var block) &&
+                     root.TryGetProperty("index", out var startIndex) &&
+                     block.TryGetProperty("type", out var blockType) &&
+                     blockType.GetString() == "tool_use")
+            {
+                toolBuilders[startIndex.GetInt32()] = (
+                    block.TryGetProperty("id", out var id) ? id.GetString() ?? string.Empty : string.Empty,
+                    block.TryGetProperty("name", out var name) ? name.GetString() ?? string.Empty : string.Empty,
+                    new StringBuilder());
+            }
+            else if (type == "message_delta")
+            {
+                if (root.TryGetProperty("delta", out var messageDelta) &&
+                    messageDelta.TryGetProperty("stop_reason", out var stopReason))
+                {
+                    finishReason = MapFinishReason(stopReason.GetString());
+                }
+
+                if (root.TryGetProperty("usage", out var usageElement))
+                {
+                    int? output = usageElement.TryGetProperty("output_tokens", out var outputProp)
+                        ? outputProp.GetInt32()
+                        : null;
+                    usage = new AgentUsage
+                    {
+                        OutputTokens = output,
+                        TotalTokens = output
+                    };
+                }
+            }
+            else if (type == "message_start" &&
+                     root.TryGetProperty("message", out var message) &&
+                     message.TryGetProperty("model", out var modelProp))
+            {
+                model = modelProp.GetString() ?? model;
+                if (message.TryGetProperty("usage", out var startUsage))
+                {
+                    int? input = startUsage.TryGetProperty("input_tokens", out var inputProp)
+                        ? inputProp.GetInt32()
+                        : null;
+                    usage = new AgentUsage
+                    {
+                        InputTokens = input,
+                        OutputTokens = usage?.OutputTokens,
+                        TotalTokens = input is int i && usage?.OutputTokens is int o ? i + o : input
+                    };
+                }
+            }
+        }
+
+        IReadOnlyList<ToolCall>? toolCalls = null;
+        if (toolBuilders.Count > 0)
+        {
+            toolCalls = toolBuilders
+                .OrderBy(static pair => pair.Key)
+                .Select(static pair => new ToolCall
+                {
+                    Id = pair.Value.Id,
+                    Name = pair.Value.Name,
+                    ArgumentsJson = pair.Value.Args.Length == 0 ? "{}" : pair.Value.Args.ToString()
+                })
+                .ToArray();
+            if (finishReason == AgentFinishReason.Stop)
+            {
+                finishReason = AgentFinishReason.ToolCalls;
+            }
+        }
+
+        yield return new ProviderStreamUpdate
+        {
+            Completed = new ProviderCompletionResult
+            {
+                Content = contentBuilder.ToString(),
+                ToolCalls = toolCalls,
+                Model = model,
+                FinishReason = finishReason,
+                Usage = usage
+            }
+        };
+    }
+
+    private static void EnsureApiKey(AnthropicOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.ApiKey))
+        {
+            throw new ProviderConfigurationException(
+                LlmProviderIds.Anthropic,
+                "Anthropic API key is missing. Set PlexAgent:Providers:Anthropic:ApiKey or configure AddAnthropic options.");
+        }
+    }
+
+    private static HttpRequestMessage CreateRequest(ProviderCompletionRequest request, AnthropicOptions options, bool stream)
     {
         var baseUrl = string.IsNullOrWhiteSpace(options.BaseUrl)
             ? AnthropicDefaults.DefaultBaseUrl
             : options.BaseUrl.TrimEnd('/');
 
         var payload = BuildPayload(request);
+        if (stream)
+        {
+            payload["stream"] = true;
+        }
+
         var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v1/messages")
         {
             Content = new StringContent(payload.ToJsonString(SerializerOptions), Encoding.UTF8, "application/json")
         };
         httpRequest.Headers.Add("x-api-key", options.ApiKey);
         httpRequest.Headers.Add("anthropic-version", AnthropicDefaults.ApiVersion);
-        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(stream ? "text/event-stream" : "application/json"));
         return httpRequest;
     }
 

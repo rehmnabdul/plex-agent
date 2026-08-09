@@ -174,6 +174,185 @@ internal sealed class AgentOrchestrator
         throw new ToolLoopMaxIterationsExceededException(agentName, maxIterations);
     }
 
+    public async IAsyncEnumerable<AgentStreamEvent> StreamAsync(
+        string agentName,
+        AgentDefinitionOptions definition,
+        IReadOnlyList<AgentMessage> messages,
+        AgentRequestOptions requestOptions,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(requestOptions);
+
+        var providerId = string.IsNullOrWhiteSpace(requestOptions.ProviderId)
+            ? definition.Provider
+            : requestOptions.ProviderId;
+        var model = string.IsNullOrWhiteSpace(requestOptions.Model)
+            ? definition.Model
+            : requestOptions.Model;
+
+        if (string.IsNullOrWhiteSpace(providerId))
+        {
+            throw new ProviderConfigurationException(
+                providerId ?? string.Empty,
+                $"Agent '{agentName}' does not specify a provider.");
+        }
+
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            throw new ProviderConfigurationException(
+                providerId,
+                $"Agent '{agentName}' does not specify a model.");
+        }
+
+        var provider = _providers.GetRequired(providerId);
+        var capabilities = await provider.GetCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
+        if (!capabilities.SupportsStreaming)
+        {
+            throw new StreamingNotSupportedException(agentName, providerId, model);
+        }
+
+        StructuredOutputPlanner.ApplyExplicitFormat(requestOptions, capabilities, providerId, model);
+        var responseFormat = ResolveResponseFormat(definition, requestOptions);
+        EnsureStructuredOutputSupported(providerId, model, responseFormat, capabilities);
+
+        var resolvedTools = _tools.ResolveMany(definition.ToolNames);
+        if (resolvedTools.Count > 0 && !capabilities.SupportsToolCalling)
+        {
+            throw new ToolCallingNotSupportedException(agentName, providerId, model);
+        }
+
+        var providerTools = resolvedTools.Count == 0
+            ? null
+            : resolvedTools
+                .Select(static t => new ProviderToolDefinition
+                {
+                    Name = t.Name,
+                    Description = t.Description,
+                    ParameterSchema = t.ParameterSchema
+                })
+                .ToArray();
+
+        var conversation = PrepareMessages(definition, messages).ToList();
+        var producedMessages = new List<AgentMessage>();
+        var executedTools = new List<ToolExecutionRecord>();
+        var maxIterations = Math.Max(1, _options.Value.ToolLoop.MaxIterations);
+        AgentUsage? totalUsage = null;
+
+        for (var iteration = 1; iteration <= maxIterations; iteration++)
+        {
+            var request = new ProviderCompletionRequest
+            {
+                Model = model,
+                Messages = conversation,
+                Temperature = requestOptions.Temperature ?? definition.Parameters.Temperature,
+                MaxTokens = requestOptions.MaxTokens ?? definition.Parameters.MaxTokens,
+                TopP = requestOptions.TopP ?? definition.Parameters.TopP,
+                StopSequences = requestOptions.StopSequences,
+                ResponseFormat = responseFormat,
+                JsonSchema = requestOptions.JsonSchema,
+                Tools = providerTools
+            };
+
+            _logger.LogDebug(
+                "Streaming agent {AgentName} via {ProviderId}/{Model} (iteration {Iteration})",
+                agentName,
+                providerId,
+                model,
+                iteration);
+
+            ProviderCompletionResult? lastResult = null;
+            await foreach (var update in provider.StreamAsync(request, cancellationToken).ConfigureAwait(false))
+            {
+                if (!string.IsNullOrEmpty(update.TextDelta))
+                {
+                    yield return new AgentStreamEvent
+                    {
+                        Kind = AgentStreamEventKind.ContentDelta,
+                        TextDelta = update.TextDelta
+                    };
+                }
+
+                if (update.Completed is not null)
+                {
+                    lastResult = update.Completed;
+                }
+            }
+
+            if (lastResult is null)
+            {
+                throw new ProviderRequestException(
+                    providerId,
+                    $"Provider '{providerId}' ended the stream without a completion payload.");
+            }
+
+            totalUsage = AggregateUsage(totalUsage, lastResult.Usage);
+
+            if (lastResult.ToolCalls is not { Count: > 0 })
+            {
+                var assistantMessage = AgentMessage.Assistant(lastResult.Content);
+                conversation.Add(assistantMessage);
+                producedMessages.Add(assistantMessage);
+
+                yield return new AgentStreamEvent
+                {
+                    Kind = AgentStreamEventKind.Completed,
+                    Response = new AgentResponse
+                    {
+                        Content = lastResult.Content,
+                        Messages = producedMessages,
+                        Usage = totalUsage,
+                        ProviderId = providerId,
+                        Model = lastResult.Model,
+                        FinishReason = lastResult.FinishReason,
+                        ToolsExecuted = executedTools.Count == 0 ? null : executedTools
+                    }
+                };
+                yield break;
+            }
+
+            if (iteration >= maxIterations)
+            {
+                throw new ToolLoopMaxIterationsExceededException(agentName, maxIterations);
+            }
+
+            var assistantWithTools = AgentMessage.Assistant(lastResult.Content, lastResult.ToolCalls);
+            conversation.Add(assistantWithTools);
+            producedMessages.Add(assistantWithTools);
+
+            foreach (var toolCall in lastResult.ToolCalls)
+            {
+                yield return new AgentStreamEvent
+                {
+                    Kind = AgentStreamEventKind.ToolCall,
+                    ToolCall = toolCall
+                };
+
+                var toolResult = await _toolExecutor.ExecuteAsync(toolCall, cancellationToken).ConfigureAwait(false);
+                var toolMessage = AgentMessage.Tool(toolResult.ToolCallId, toolResult.Name, toolResult.Content);
+                conversation.Add(toolMessage);
+                producedMessages.Add(toolMessage);
+                var record = new ToolExecutionRecord
+                {
+                    Name = toolCall.Name,
+                    ArgumentsJson = toolCall.ArgumentsJson,
+                    ResultJson = toolResult.Content,
+                    IsError = toolResult.IsError
+                };
+                executedTools.Add(record);
+                yield return new AgentStreamEvent
+                {
+                    Kind = AgentStreamEventKind.ToolResult,
+                    ToolExecution = record
+                };
+            }
+        }
+
+        throw new ToolLoopMaxIterationsExceededException(agentName, maxIterations);
+    }
+
     public async Task<AgentResponse<T>> CompleteStructuredAsync<T>(
         string agentName,
         AgentDefinitionOptions definition,
@@ -206,7 +385,7 @@ internal sealed class AgentOrchestrator
 
         if (requestOptions.JsonSchema is not null)
         {
-            JsonSchemaValidator.ValidateRequired(
+            JsonSchemaValidator.ValidateStructured(
                 requestOptions.JsonSchema.Schema,
                 response.Content,
                 typeof(T).Name);

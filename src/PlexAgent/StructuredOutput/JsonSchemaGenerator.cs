@@ -107,7 +107,13 @@ public static class JsonSchemaGenerator
             }
 
             var jsonName = ToCamelCase(property.Name);
-            properties[jsonName] = BuildSchema(property.PropertyType, strict);
+            var propertySchema = BuildSchema(property.PropertyType, strict);
+            if (!IsRequired(property))
+            {
+                propertySchema = AllowNull(propertySchema);
+            }
+
+            properties[jsonName] = propertySchema;
 
             if (IsRequired(property))
             {
@@ -129,6 +135,34 @@ public static class JsonSchemaGenerator
         if (strict)
         {
             schema["additionalProperties"] = false;
+        }
+
+        return schema;
+    }
+
+    private static JsonObject AllowNull(JsonObject schema)
+    {
+        if (!schema.TryGetPropertyValue("type", out var typeNode) || typeNode is null)
+        {
+            return schema;
+        }
+
+        if (typeNode is JsonValue value && value.TryGetValue<string>(out var typeName) && typeName is not null)
+        {
+            schema["type"] = new JsonArray(JsonValue.Create(typeName), JsonValue.Create("null"));
+            return schema;
+        }
+
+        if (typeNode is JsonArray array)
+        {
+            var hasNull = array.Any(static node =>
+                node is JsonValue jsonValue &&
+                jsonValue.TryGetValue<string>(out var name) &&
+                name == "null");
+            if (!hasNull)
+            {
+                array.Add(JsonValue.Create("null"));
+            }
         }
 
         return schema;

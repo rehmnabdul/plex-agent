@@ -110,6 +110,25 @@ internal sealed class Agent : IAgent
         return _orchestrator.CompleteStructuredAsync<T>(Name, _definition, messages, options, cancellationToken);
     }
 
+    public IAsyncEnumerable<AgentStreamEvent> StreamAsync(
+        string prompt,
+        Action<AgentRequestOptions>? configure = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
+        return StreamAsync([AgentMessage.User(prompt)], configure, cancellationToken);
+    }
+
+    public IAsyncEnumerable<AgentStreamEvent> StreamAsync(
+        IReadOnlyList<AgentMessage> messages,
+        Action<AgentRequestOptions>? configure = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        var options = CreateOptions(configure);
+        return _orchestrator.StreamAsync(Name, _definition, messages, options, cancellationToken);
+    }
+
     public IAgentSession CreateSession() => new AgentSession(this, _definition, _options);
 
     private static AgentRequestOptions CreateOptions(Action<AgentRequestOptions>? configure)
