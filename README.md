@@ -11,7 +11,7 @@ Multi-LLM agent library for ASP.NET Core and .NET generic hosts. Configure named
 | `PlexAgent.Providers.Anthropic` | Anthropic Messages API adapter |
 | `PlexAgent.Providers.Gemini` | Google Gemini adapter |
 
-Current version: **1.0.0-preview.1**
+Current version: **1.0.0**
 
 ## Quick start
 
