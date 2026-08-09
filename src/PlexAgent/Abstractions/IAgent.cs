@@ -33,6 +33,15 @@ public interface IAgent
         Action<AgentRequestOptions>? configure = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Sends a single user prompt with an explicit JSON schema and deserializes into <typeparamref name="T"/>.
+    /// </summary>
+    Task<AgentResponse<T>> AskAsync<T>(
+        string prompt,
+        JsonSchemaResponseFormat schema,
+        Action<AgentRequestOptions>? configure = null,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Sends an explicit message list and returns a text response.</summary>
     Task<AgentResponse> AskAsync(
         IReadOnlyList<AgentMessage> messages,

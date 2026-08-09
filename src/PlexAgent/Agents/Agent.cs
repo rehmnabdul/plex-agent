@@ -63,6 +63,25 @@ internal sealed class Agent : IAgent
             cancellationToken);
     }
 
+    public Task<AgentResponse<T>> AskAsync<T>(
+        string prompt,
+        JsonSchemaResponseFormat schema,
+        Action<AgentRequestOptions>? configure = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
+        ArgumentNullException.ThrowIfNull(schema);
+
+        return AskAsync<T>(
+            [AgentMessage.User(prompt)],
+            opts =>
+            {
+                configure?.Invoke(opts);
+                opts.WithJsonSchema(schema);
+            },
+            cancellationToken);
+    }
+
     public Task<AgentResponse> AskAsync(
         IReadOnlyList<AgentMessage> messages,
         Action<AgentRequestOptions>? configure = null,
