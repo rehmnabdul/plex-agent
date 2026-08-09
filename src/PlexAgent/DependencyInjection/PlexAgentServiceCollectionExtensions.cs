@@ -1,6 +1,10 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using PlexAgent.Abstractions;
+using PlexAgent.Agents;
 using PlexAgent.Configuration;
+using PlexAgent.Internal;
 
 namespace PlexAgent.DependencyInjection;
 
@@ -33,6 +37,7 @@ public static class PlexAgentServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(configuration);
 
         services.Configure<PlexAgentOptions>(configuration.GetSection(PlexAgentOptions.SectionName));
+        RegisterCoreServices(services);
         return new PlexAgentBuilder(services);
     }
 
@@ -45,6 +50,16 @@ public static class PlexAgentServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(configure);
 
         services.Configure(configure);
+        RegisterCoreServices(services);
         return new PlexAgentBuilder(services);
+    }
+
+    private static void RegisterCoreServices(IServiceCollection services)
+    {
+        services.AddLogging();
+        services.TryAddSingleton<LlmProviderRegistry>();
+        services.TryAddSingleton<AgentDefinitionRegistry>();
+        services.TryAddSingleton<AgentOrchestrator>();
+        services.TryAddScoped<IAgentFactory, AgentFactory>();
     }
 }

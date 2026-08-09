@@ -1,4 +1,8 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Http.Resilience;
+using PlexAgent.Abstractions;
 using PlexAgent.Configuration;
 using PlexAgent.DependencyInjection;
 using PlexAgent.Models;
@@ -14,7 +18,7 @@ public sealed class OpenAiOptions : ProviderOptionsBase
 /// <summary>DI extensions for the OpenAI provider adapter.</summary>
 public static class OpenAiServiceCollectionExtensions
 {
-    /// <summary>Registers the OpenAI <c>ILlmProvider</c> adapter. Implementation arrives in Phase 2.</summary>
+    /// <summary>Registers the OpenAI <c>ILlmProvider</c> adapter and resilient HTTP client.</summary>
     public static IPlexAgentBuilder AddOpenAI(this IPlexAgentBuilder builder, Action<OpenAiOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -28,8 +32,32 @@ public static class OpenAiServiceCollectionExtensions
             builder.Services.Configure<OpenAiOptions>(_ => { });
         }
 
-        // Provider implementation registration lands in Phase 2.
-        _ = LlmProviderIds.OpenAI;
+        RegisterOpenAiServices(builder.Services);
         return builder;
+    }
+
+    /// <summary>Registers the OpenAI adapter using a configuration section (e.g. <c>PlexAgent:Providers:OpenAI</c>).</summary>
+    public static IPlexAgentBuilder AddOpenAI(this IPlexAgentBuilder builder, IConfigurationSection section)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(section);
+
+        builder.Services.Configure<OpenAiOptions>(section);
+        RegisterOpenAiServices(builder.Services);
+        return builder;
+    }
+
+    private static void RegisterOpenAiServices(IServiceCollection services)
+    {
+        services.AddHttpClient(OpenAiDefaults.HttpClientName, (sp, client) =>
+            {
+                var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<OpenAiOptions>>().Value;
+                var timeoutSeconds = options.TimeoutSeconds <= 0 ? 120 : options.TimeoutSeconds;
+                client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+            })
+            .AddStandardResilienceHandler();
+
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ILlmProvider, OpenAiLlmProvider>());
+        _ = LlmProviderIds.OpenAI;
     }
 }
