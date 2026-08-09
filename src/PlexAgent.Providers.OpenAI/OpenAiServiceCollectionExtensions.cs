@@ -12,6 +12,7 @@ namespace PlexAgent.Providers.OpenAI;
 /// <summary>OpenAI-specific options.</summary>
 public sealed class OpenAiOptions : ProviderOptionsBase
 {
+    /// <summary>Optional OpenAI organization id.</summary>
     public string? OrganizationId { get; set; }
 }
 

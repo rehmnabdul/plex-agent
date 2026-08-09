@@ -2,11 +2,10 @@
 
   <PropertyGroup>
     <RootNamespace>PlexAgent.Providers.Gemini</RootNamespace>
-    <Description>Google Gemini provider adapter for Plex Agent.</Description>
-    <PackageTags>ai;llm;gemini;google;plexagent</PackageTags>
     <PackageId>PlexAgent.Providers.Gemini</PackageId>
     <IsPackable>true</IsPackable>
-    <Version>0.1.0-preview.1</Version>
+    <Description>Google Gemini generateContent adapter for Plex Agent with resilient HttpClient transport.</Description>
+    <PackageTags>ai;llm;gemini;google;plexagent;tools;structured-output</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

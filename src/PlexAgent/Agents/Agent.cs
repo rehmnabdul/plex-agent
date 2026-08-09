@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using PlexAgent.Abstractions;
 using PlexAgent.Configuration;
 using PlexAgent.Models;
@@ -8,16 +9,23 @@ internal sealed class Agent : IAgent
 {
     private readonly AgentDefinitionOptions _definition;
     private readonly AgentOrchestrator _orchestrator;
+    private readonly IOptions<PlexAgentOptions> _options;
 
-    public Agent(string name, AgentDefinitionOptions definition, AgentOrchestrator orchestrator)
+    public Agent(
+        string name,
+        AgentDefinitionOptions definition,
+        AgentOrchestrator orchestrator,
+        IOptions<PlexAgentOptions> options)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(orchestrator);
+        ArgumentNullException.ThrowIfNull(options);
 
         Name = name;
         _definition = definition;
         _orchestrator = orchestrator;
+        _options = options;
     }
 
     public string Name { get; }
@@ -102,7 +110,7 @@ internal sealed class Agent : IAgent
         return _orchestrator.CompleteStructuredAsync<T>(Name, _definition, messages, options, cancellationToken);
     }
 
-    public IAgentSession CreateSession() => new AgentSession(this, _definition);
+    public IAgentSession CreateSession() => new AgentSession(this, _definition, _options);
 
     private static AgentRequestOptions CreateOptions(Action<AgentRequestOptions>? configure)
     {

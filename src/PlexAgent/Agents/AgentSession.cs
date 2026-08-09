@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using PlexAgent.Abstractions;
 using PlexAgent.Configuration;
 using PlexAgent.Models;
@@ -8,15 +9,22 @@ internal sealed class AgentSession : IAgentSession
 {
     private readonly Agent _agent;
     private readonly AgentDefinitionOptions _definition;
+    private readonly SessionOptions _sessionOptions;
     private readonly List<AgentMessage> _history = [];
     private bool _systemPromptInjected;
 
-    public AgentSession(Agent agent, AgentDefinitionOptions definition)
+    public AgentSession(
+        Agent agent,
+        AgentDefinitionOptions definition,
+        IOptions<PlexAgentOptions> options)
     {
         ArgumentNullException.ThrowIfNull(agent);
         ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(options);
+
         _agent = agent;
         _definition = definition;
+        _sessionOptions = options.Value.Sessions;
         AgentName = agent.Name;
         EnsureSystemPrompt();
     }
@@ -24,6 +32,12 @@ internal sealed class AgentSession : IAgentSession
     public string AgentName { get; }
 
     public IReadOnlyList<AgentMessage> History => _history;
+
+    public int TurnCount { get; private set; }
+
+    public string? LastProviderId { get; private set; }
+
+    public string? LastModel { get; private set; }
 
     public async Task<AgentResponse> AskAsync(
         string prompt,
@@ -57,6 +71,15 @@ internal sealed class AgentSession : IAgentSession
     {
         _history.Clear();
         _systemPromptInjected = false;
+        TurnCount = 0;
+        LastProviderId = null;
+        LastModel = null;
+    }
+
+    public void Reset()
+    {
+        Clear();
+        EnsureSystemPrompt();
     }
 
     private void EnsureSystemPrompt()
@@ -76,5 +99,40 @@ internal sealed class AgentSession : IAgentSession
         {
             _history.Add(message);
         }
+
+        TurnCount++;
+        LastProviderId = response.ProviderId;
+        LastModel = response.Model;
+        TrimHistoryIfNeeded();
+    }
+
+    private void TrimHistoryIfNeeded()
+    {
+        var max = _sessionOptions.MaxHistoryMessages;
+        if (max <= 0 || _history.Count <= max)
+        {
+            return;
+        }
+
+        // Always keep a leading system prompt when present; drop oldest non-system messages.
+        var hasSystem = _history.Count > 0 && _history[0].Role == AgentRole.System;
+        var keepFrom = _history.Count - max;
+        if (hasSystem)
+        {
+            keepFrom = Math.Max(1, keepFrom);
+            var trimmed = new List<AgentMessage>(max) { _history[0] };
+            trimmed.AddRange(_history.Skip(keepFrom));
+            // If still over (system + rest), drop more from the front of the non-system slice.
+            while (trimmed.Count > max && trimmed.Count > 1)
+            {
+                trimmed.RemoveAt(1);
+            }
+
+            _history.Clear();
+            _history.AddRange(trimmed);
+            return;
+        }
+
+        _history.RemoveRange(0, _history.Count - max);
     }
 }
