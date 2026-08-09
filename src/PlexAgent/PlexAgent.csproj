@@ -2,11 +2,10 @@
 
   <PropertyGroup>
     <RootNamespace>PlexAgent</RootNamespace>
-    <Description>Lightweight multi-LLM agent library for ASP.NET Core and .NET generic hosts.</Description>
-    <PackageTags>ai;llm;agent;openai;anthropic;gemini;aspnetcore</PackageTags>
     <PackageId>PlexAgent</PackageId>
     <IsPackable>true</IsPackable>
-    <Version>0.1.0-preview.1</Version>
+    <Description>Multi-LLM agent orchestration for ASP.NET Core and .NET hosts. Unified AskAsync API, tool loop, sessions, and structured JSON output across OpenAI, Anthropic, and Gemini providers.</Description>
+    <PackageTags>ai;llm;agent;openai;anthropic;gemini;aspnetcore;tools;structured-output</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

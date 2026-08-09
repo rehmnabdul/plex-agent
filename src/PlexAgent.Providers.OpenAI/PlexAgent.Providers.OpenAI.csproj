@@ -2,11 +2,10 @@
 
   <PropertyGroup>
     <RootNamespace>PlexAgent.Providers.OpenAI</RootNamespace>
-    <Description>OpenAI provider adapter for Plex Agent.</Description>
-    <PackageTags>ai;llm;openai;plexagent</PackageTags>
     <PackageId>PlexAgent.Providers.OpenAI</PackageId>
     <IsPackable>true</IsPackable>
-    <Version>0.1.0-preview.1</Version>
+    <Description>Official OpenAI Chat Completions adapter for Plex Agent, including tool calling and JSON schema structured outputs.</Description>
+    <PackageTags>ai;llm;openai;plexagent;tools;structured-output</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

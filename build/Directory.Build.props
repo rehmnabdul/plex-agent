@@ -5,8 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <!-- XML docs enabled; missing comments are warnings-as-errors deferred until public API polish -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Missing XML comments remain warnings for incremental public API polish -->
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <Authors>Abdur Rahman</Authors>
     <Company>Plex Agent</Company>
@@ -20,6 +20,15 @@
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <Version>1.0.0-preview.1</Version>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <None Include="$(MSBuildThisFileDirectory)..\README.md" Pack="true" PackagePath="\" Link="README.md" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(IsPackable)' == 'true'">
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <PropertyGroup Condition="$(MSBuildProjectName.Contains('.Tests')) or $(MSBuildProjectName.Contains('.IntegrationTests')) or $(MSBuildProjectName.Contains('.Sample.'))">

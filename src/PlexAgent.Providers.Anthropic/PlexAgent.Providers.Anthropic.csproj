@@ -2,11 +2,10 @@
 
   <PropertyGroup>
     <RootNamespace>PlexAgent.Providers.Anthropic</RootNamespace>
-    <Description>Anthropic provider adapter for Plex Agent.</Description>
-    <PackageTags>ai;llm;anthropic;claude;plexagent</PackageTags>
     <PackageId>PlexAgent.Providers.Anthropic</PackageId>
     <IsPackable>true</IsPackable>
-    <Version>0.1.0-preview.1</Version>
+    <Description>Anthropic Claude Messages API adapter for Plex Agent with resilient HttpClient transport.</Description>
+    <PackageTags>ai;llm;anthropic;claude;plexagent;tools</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,14 +1,17 @@
-name: ci
+name: publish
 
 on:
   push:
-    branches: [main, cursor/**]
-  pull_request:
-    branches: [main]
+    tags:
+      - "v*"
+  release:
+    types: [published]
 
 jobs:
-  build-test:
+  publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -33,3 +36,14 @@ jobs:
           dotnet pack src/PlexAgent.Providers.OpenAI/PlexAgent.Providers.OpenAI.csproj --configuration Release --no-build -o artifacts
           dotnet pack src/PlexAgent.Providers.Anthropic/PlexAgent.Providers.Anthropic.csproj --configuration Release --no-build -o artifacts
           dotnet pack src/PlexAgent.Providers.Gemini/PlexAgent.Providers.Gemini.csproj --configuration Release --no-build -o artifacts
+
+      - name: Push to NuGet.org
+        if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'release' }}
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -z "$NUGET_API_KEY" ]; then
+            echo "NUGET_API_KEY secret is not configured; skipping push."
+            exit 1
+          fi
+          dotnet nuget push "artifacts/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate

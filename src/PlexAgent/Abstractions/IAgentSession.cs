@@ -11,6 +11,15 @@ public interface IAgentSession
     /// <summary>Current conversation history, including system prompt when present.</summary>
     IReadOnlyList<AgentMessage> History { get; }
 
+    /// <summary>Number of user turns completed in this session.</summary>
+    int TurnCount { get; }
+
+    /// <summary>Provider id used by the most recent turn, if any.</summary>
+    string? LastProviderId { get; }
+
+    /// <summary>Model id used by the most recent turn, if any.</summary>
+    string? LastModel { get; }
+
     /// <summary>Appends a user prompt, runs the agent, and updates history.</summary>
     Task<AgentResponse> AskAsync(
         string prompt,
@@ -23,6 +32,9 @@ public interface IAgentSession
         Action<AgentRequestOptions>? configure = null,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Clears conversation history (system prompt is re-injected on the next turn).</summary>
+    /// <summary>Clears conversation history. The system prompt is re-injected on the next turn.</summary>
     void Clear();
+
+    /// <summary>Clears conversation history and immediately re-injects the system prompt when configured.</summary>
+    void Reset();
 }
