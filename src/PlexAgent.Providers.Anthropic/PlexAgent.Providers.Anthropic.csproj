@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>PlexAgent.Providers.Anthropic</RootNamespace>
+    <Description>Anthropic provider adapter for Plex Agent.</Description>
+    <PackageTags>ai;llm;anthropic;claude;plexagent</PackageTags>
+    <PackageId>PlexAgent.Providers.Anthropic</PackageId>
+    <IsPackable>true</IsPackable>
+    <Version>0.1.0-preview.1</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PlexAgent\PlexAgent.csproj" />
+  </ItemGroup>
+
+</Project>
