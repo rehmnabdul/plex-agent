@@ -47,6 +47,15 @@ public sealed class ProviderConfigurationException : PlexAgentException
     }
 }
 
+public sealed class ProviderRequestException : PlexAgentException
+{
+    public ProviderRequestException(string providerId, string message)
+        : base(message)
+    {
+        ProviderId = providerId;
+    }
+}
+
 public sealed class ToolCallingNotSupportedException : PlexAgentException
 {
     public ToolCallingNotSupportedException(string agentName, string providerId, string model)
