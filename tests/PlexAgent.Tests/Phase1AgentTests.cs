@@ -131,7 +131,8 @@ public class AgentOrchestratorTests
 
         Assert.Equal("Reset", response.Data.Title);
         Assert.Equal(2, response.Data.Steps);
-        Assert.Equal(ResponseFormatKind.JsonObject, fake.LastResponseFormat);
+        Assert.Equal(ResponseFormatKind.JsonSchema, fake.LastResponseFormat);
+        Assert.NotNull(fake.LastJsonSchema);
     }
 
     [Fact]
@@ -199,6 +200,8 @@ internal sealed class FakeLlmProvider : ILlmProvider
 
     public ResponseFormatKind LastResponseFormat { get; private set; }
 
+    public JsonSchemaResponseFormat? LastJsonSchema { get; private set; }
+
     public Task<ProviderCapabilities> GetCapabilitiesAsync(CancellationToken cancellationToken = default)
     {
         return Task.FromResult(new ProviderCapabilities(
@@ -215,6 +218,7 @@ internal sealed class FakeLlmProvider : ILlmProvider
         CancellationToken cancellationToken = default)
     {
         LastResponseFormat = request.ResponseFormat;
+        LastJsonSchema = request.JsonSchema;
         var lastUser = request.Messages.LastOrDefault(m => m.Role == AgentRole.User)?.Content ?? string.Empty;
         var content = _structuredJson ?? $"echo:{lastUser}";
 

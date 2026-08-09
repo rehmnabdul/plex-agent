@@ -6,6 +6,7 @@ using PlexAgent.Configuration;
 using PlexAgent.Exceptions;
 using PlexAgent.Internal;
 using PlexAgent.Models;
+using PlexAgent.StructuredOutput;
 using PlexAgent.Tools;
 
 namespace PlexAgent.Agents;
@@ -74,6 +75,7 @@ internal sealed class AgentOrchestrator
         var provider = _providers.GetRequired(providerId);
         var capabilities = await provider.GetCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
 
+        StructuredOutputPlanner.ApplyExplicitFormat(requestOptions, capabilities, providerId, model);
         var responseFormat = ResolveResponseFormat(definition, requestOptions);
         EnsureStructuredOutputSupported(providerId, model, responseFormat, capabilities);
 
@@ -179,13 +181,36 @@ internal sealed class AgentOrchestrator
         AgentRequestOptions requestOptions,
         CancellationToken cancellationToken)
     {
-        if (requestOptions.ResponseFormat == ResponseFormatKind.Text)
+        var providerId = string.IsNullOrWhiteSpace(requestOptions.ProviderId)
+            ? definition.Provider
+            : requestOptions.ProviderId;
+        var model = string.IsNullOrWhiteSpace(requestOptions.Model)
+            ? definition.Model
+            : requestOptions.Model;
+
+        if (string.IsNullOrWhiteSpace(providerId) || string.IsNullOrWhiteSpace(model))
         {
-            requestOptions.ResponseFormat = ResponseFormatKind.JsonObject;
+            // CompleteAsync performs the definitive configuration validation.
+            providerId ??= string.Empty;
+            model ??= string.Empty;
+        }
+        else
+        {
+            var provider = _providers.GetRequired(providerId);
+            var capabilities = await provider.GetCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
+            StructuredOutputPlanner.ApplyForType<T>(requestOptions, capabilities, providerId, model);
         }
 
         var response = await CompleteAsync(agentName, definition, messages, requestOptions, cancellationToken)
             .ConfigureAwait(false);
+
+        if (requestOptions.JsonSchema is not null)
+        {
+            JsonSchemaValidator.ValidateRequired(
+                requestOptions.JsonSchema.Schema,
+                response.Content,
+                typeof(T).Name);
+        }
 
         try
         {
@@ -244,11 +269,16 @@ internal sealed class AgentOrchestrator
         AgentDefinitionOptions definition,
         AgentRequestOptions requestOptions)
     {
-        if (requestOptions.ResponseFormat != ResponseFormatKind.Text || requestOptions.JsonSchema is not null)
+        // Per-call format wins. JsonSchema may still be present for post-validation
+        // when the provider only supports JSON object mode.
+        if (requestOptions.ResponseFormat != ResponseFormatKind.Text)
         {
-            return requestOptions.JsonSchema is not null
-                ? ResponseFormatKind.JsonSchema
-                : requestOptions.ResponseFormat;
+            return requestOptions.ResponseFormat;
+        }
+
+        if (requestOptions.JsonSchema is not null)
+        {
+            return ResponseFormatKind.JsonSchema;
         }
 
         return definition.ResponseFormat.ToLowerInvariant() switch
@@ -267,7 +297,7 @@ internal sealed class AgentOrchestrator
     {
         switch (format)
         {
-            case ResponseFormatKind.JsonSchema when !capabilities.SupportsJsonSchema && !capabilities.SupportsJsonObject:
+            case ResponseFormatKind.JsonSchema when !capabilities.SupportsJsonSchema:
             case ResponseFormatKind.JsonObject when !capabilities.SupportsJsonObject && !capabilities.SupportsJsonSchema:
                 throw new StructuredOutputNotSupportedException(providerId, model);
         }

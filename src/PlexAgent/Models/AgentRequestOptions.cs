@@ -1,3 +1,5 @@
+using PlexAgent.StructuredOutput;
+
 namespace PlexAgent.Models;
 
 /// <summary>Per-call overrides applied on top of agent defaults.</summary>
@@ -51,4 +53,8 @@ public sealed class AgentRequestOptions
         JsonSchema = schema;
         return this;
     }
+
+    /// <summary>Uses a reflection-generated JSON Schema for <typeparamref name="T"/>.</summary>
+    public AgentRequestOptions WithJsonSchemaFrom<T>(string? name = null, bool strict = true)
+        => WithJsonSchema(JsonSchemaGenerator.FromType<T>(name, strict));
 }
